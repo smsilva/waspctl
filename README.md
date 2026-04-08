@@ -132,81 +132,168 @@ customer2.com     | customer2-brsouth1-prod.wasp.silvios.me
 
 **Cognito (opcional):** o ALB tem integração nativa com Cognito para externalizar o fluxo OIDC/OAuth. Lambda Triggers enriquecem o JWT com o tenant baseado no domínio do e-mail.
 
-## Ideias de comandos
+## CLI
 
-### Cloud Providers
+Configuração global em `~/.wasp/config.yaml` (substituível com `--config`). Comandos que criam recursos em cloud solicitam confirmação de account e região antes de prosseguir, a menos que `-y/--yes` seja passado.
+
+**Flags globais:**
+
+| Flag | Descrição | Default |
+|------|-----------|---------|
+| `-o, --output table\|json\|yaml` | Formato de output | `table` |
+| `-y, --yes` | Skip de confirmação | `false` |
+| `--config <path>` | Arquivo de config alternativo | `~/.wasp/config.yaml` |
+
+### config
+
+Gerencia o arquivo de configuração local, seguindo a mesma convenção do `git config`.
+
+```shell
+waspctl config --set provider aws
+waspctl config --get provider
+waspctl config --list
+```
+
+```yaml
+# ~/.wasp/config.yaml
+provider: aws
+```
+
+### provider
 
 ```shell
 waspctl provider list
 
-# Exemplo de output
-NAME    DESCRIPTION            CURRENT
-aws     Amazon Web Services    no
-gcp     Google Cloud Platform  no
-azure   Microsoft Azure        no
+# Output
+NAME   DESCRIPTION            ACTIVE
+aws    Amazon Web Services    yes
+azure  Microsoft Azure        no
+gcp    Google Cloud Platform  no
 
-# Definir o provedor de nuvem ativo
-waspctl config --set provider aws
-
-# Qualquer comando de criação de recurso compartilhado usaria o provedor de nuvem ativo, se não houver um, o comando pediria para selecionar um. O comando salvará a seleção em um arquivo que, por padrão, será criado em ~/.wasp/config.yaml, mas poderia ser customizado usando um parâmetro --config.
+waspctl provider set gcp
 ```
 
-#### Exemplo de configuração salva em ~/.wasp/config.yaml
-
-```yaml
-provider: aws
-```
+### dns
 
 ```shell
-# Cria o domínio global wasp.silvios.me
-waspctl dns create \
-  --name wasp.silvios.me
+waspctl dns create --name wasp.silvios.me
 
-# Cria um Container Registry
-waspctl registry create \
-  --name wasp \
-  --region us-east-1
+waspctl dns list
 
-# Cria um Database NoSQL para armazenar o estado da plataforma e dos clusters de clientes
-waspctl database create \
-  --name wasp-state \
-  --region us-east-1
+# Output
+NAME             PROVIDER  STATUS
+wasp.silvios.me  aws       active
 
-# Criar uma instância de plataforma WASP
-waspctl instance create \
-  --name <platform-name> \
-  --region <region> \
-  --domain <domain-name>
+waspctl dns delete --name wasp.silvios.me
+```
 
-# Exemplo com valores
+### registry
+
+```shell
+waspctl registry create --name wasp --region us-east-1
+
+waspctl registry list
+
+# Output
+NAME  PROVIDER  REGION     STATUS
+wasp  aws       us-east-1  active
+
+waspctl registry delete --name wasp
+```
+
+### database
+
+```shell
+waspctl database create --name wasp-state --region us-east-1
+
+waspctl database list
+
+# Output
+NAME        PROVIDER  REGION     STATUS
+wasp-state  aws       us-east-1  active
+```
+
+### instance
+
+Gerencia platform-clusters.
+
+```shell
 waspctl instance create \
   --name platform-cluster-use1 \
   --region us-east-1 \
   --domain wasp.silvios.me
 
-# No exemplo com AWS, o comando confirmaria a AWS account e a região caso não fosse passado o parâmetro --yes, para evitar criar recursos na conta ou região errada. Exemplo:
-# Please confirm the following information before proceeding:
+# Confirmation prompt
+# Please confirm:
 #
-#   Account: 123456789012
-#   Region: us-east-1
+#   Account : 123456789012
+#   Region  : us-east-1
 #
-# Do you want to proceed? (y/n) y
-#
+# Proceed? (y/n) y
 
-# Listar instâncias de plataforma WASP
 waspctl instance list
 
-# Exemplo de output
-NAME                   PROVIDER   REGION      DOMAIN           STATUS
-platform-cluster-use1  aws        us-east-1   wasp.silvios.me  ready
-platform-cluster-brs1  aws        sa-east-1   wasp.silvios.me  provisioning
+# Output
+NAME                   PROVIDER  REGION     DOMAIN           STATUS
+platform-cluster-brs1  aws       sa-east-1  wasp.silvios.me  provisioning
+platform-cluster-use1  aws       us-east-1  wasp.silvios.me  ready
 
-# Conectar em uma instância da plataforma WASP
-waspctl instance connect <platform-name>
-
-# Exemplo com valores
 waspctl instance connect platform-cluster-use1
 
-# Autenticar usando SSO
+waspctl instance delete platform-cluster-use1
+```
+
+### customer
+
+Gerencia customer-clusters. O flag `--instance` é obrigatório para garantir clareza sobre em qual platform-cluster o recurso será criado.
+
+```shell
+waspctl customer create \
+  --name customer1-use1 \
+  --instance platform-cluster-use1 \
+  --region us-east-1
+
+waspctl customer list --instance platform-cluster-use1
+
+# Output
+NAME            INSTANCE               REGION     STATUS
+customer1-use1  platform-cluster-use1  us-east-1  ready
+customer2-use1  platform-cluster-use1  us-east-1  ready
+
+waspctl customer delete \
+  --name customer1-use1 \
+  --instance platform-cluster-use1
+```
+
+### tenant
+
+Gerencia o registry de tenants (email domain → gateway).
+
+```shell
+waspctl tenant create \
+  --domain customer1.com \
+  --gateway customer1-useast1-prod.wasp.silvios.me
+
+waspctl tenant list
+
+# Output
+DOMAIN         GATEWAY
+customer1.com  customer1-useast1-prod.wasp.silvios.me
+customer2.com  customer2-brsouth1-prod.wasp.silvios.me
+
+waspctl tenant delete --domain customer1.com
+```
+
+### auth
+
+```shell
 waspctl auth login --provider google
+
+waspctl auth logout
+
+waspctl auth whoami
+
+# Output
+EMAIL               PROVIDER  TENANT
+john@customer1.com  google    customer1-useast1-prod
 ```

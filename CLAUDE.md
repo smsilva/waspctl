@@ -10,18 +10,19 @@ When writing prose (Portuguese), keep technical terms in English as they are ref
 
 `waspctl` is a Go CLI tool for managing a multi-tenant Kubernetes platform (WASP). It provisions and manages a hierarchical topology of platform clusters and customer clusters across AWS regions, with a single global entry point (`wasp.silvios.me`).
 
-## Planned CLI Structure
+## CLI Conventions
 
-Commands follow the pattern `waspctl <resource> <verb> [flags]`:
+Commands follow the pattern `waspctl <resource> <verb> [flags]`. Command groups: `config`, `provider`, `dns`, `registry`, `database`, `instance`, `customer`, `tenant`, `auth`.
 
-- `waspctl provider list` / `waspctl config --set provider <aws|gcp|azure>`
-- `waspctl dns create --name <domain>`
-- `waspctl registry create --name <name> --region <region>`
-- `waspctl database create --name <name> --region <region>`
-- `waspctl instance create|list|connect`
-- `waspctl auth login --provider google`
+**Global flags** (all commands): `-o/--output table|json|yaml` (default: `table`), `-y/--yes` (skip confirmation), `--config <path>` (default: `~/.wasp/config.yaml`).
 
-Config is stored in `~/.wasp/config.yaml` (overridable with `--config`). Commands that create cloud resources must confirm AWS account + region unless `--yes` is passed.
+**`config` command** follows the `git config` convention — it manages the config file directly (e.g., `waspctl config --set provider aws`, `waspctl config --get provider`, `waspctl config --list`). Do not conflate with `provider` subcommands.
+
+**`customer` commands** always require `--instance <platform-name>` — this is intentional for safety and clarity, so the user always explicitly declares which platform-cluster the customer-cluster belongs to.
+
+**Confirmation prompt** — commands that create cloud resources ask for confirmation of AWS account + region unless `-y/--yes` is passed.
+
+**Always update this file** at the end of sessions where architectural decisions, CLI conventions, or design patterns are established.
 
 ## Architecture
 
