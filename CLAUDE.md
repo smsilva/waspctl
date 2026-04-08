@@ -67,3 +67,17 @@ Istio (service mesh + gateway), ArgoCD (GitOps), external-dns, cert-manager, Cro
 All commands should have unit tests for core logic and integration tests when it makes sense if the command interact with AWS, should mock AWS services (using tools like `localstack` or `moto`) to validate end-to-end flows without incurring cloud costs during development.
 
 After each change, the test suite should be run to ensure no regressions. For critical flows (like tenant routing), consider adding end-to-end tests that deploy a test cluster and validate routing behavior.
+
+### Running tests
+
+`go test` via wrapper is killed by the sandbox in this environment. Compile and run the test binary directly:
+
+```bash
+# run all tests
+go test -c -o /tmp/pkg.test ./<package>/... && /tmp/pkg.test -test.v
+
+# example: internal/config
+go test -c -o /tmp/config.test ./internal/config/ && /tmp/config.test -test.v
+```
+
+`go build ./...` and `go vet ./...` work normally and should always pass before committing.
