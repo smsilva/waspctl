@@ -1,120 +1,71 @@
 # waspctl
 
-## Ideia inicial
+Este projeto é um playground para experimentar a construção de uma CLI e uma plataforma de orquestração de clusters Kubernetes multi-tenant na AWS, chamada WASP (Hierarchical Platform Topology).
 
-Inicialmente na AWS, usar EKS clusters com ambientes diferentes por cliente separados por namespaces e network policies.
+A maior parte dele se baseia em documentos da AWS:
 
-Cada ambiente de cada cliente possui seu próprio Gateway de entrada como:
+*Building a Multi-Tenant SaaS Solution Using Amazon EKS*
+by Toby Buckley and Ranjith Raman
+https://aws.amazon.com/pt/blogs/apn/building-a-multi-tenant-saas-solution-using-amazon-eks/
 
-customer1-useast1-prod.wasp.silvios.me
-customer2-brsouth1-prod.wasp.silvios.me
+*Operating a multi-regional stateless application using Amazon EKS*
+by Re Alvarez-Parmar
+https://aws.amazon.com/pt/blogs/containers/operating-a-multi-regional-stateless-application-using-amazon-eks/
 
-A ideia é ter uma entrada única em:
+*Amazon EKS Blueprints for Terraform*
+https://aws-ia.github.io/terraform-aws-eks-blueprints/
 
-wasp.silvios.me
+`waspctl` é uma CLI para provisionar uma Hierarchical Platform Topology de clusters Kubernetes multi-tenant na AWS, com entrada global única em `wasp.silvios.me`.
 
-Descobrir o cliente pelo Domain do e-mail (john@customer1.com) e para esse usuário redirecionar o tráfego para o Gateway correspondente.
-
-## Tecnologias que poderíamos usar inicialmente
-
-- k3d para criar um cluster local que poderia ser usado junto com o Crossplane como Undercloud para criar e gerenciar recursos compartilhados inicialmente na AWS
-- KCL: para evitar repetição de código yaml e ter uma linguagem de programação mais expressiva para definir os recursos compartilhados e a hierarquia da plataforma
-- SSO: para autenticação, inicialmente usando contas Google, mas a ideia é ter uma arquitetura de autenticação flexível que permita adicionar outros provedores de identidade no futuro, como AWS IAM, Azure AD, etc.
-- EKS: para criar clusters de plataforma e clusters de clientes gerenciados na AWS, mas a ideia é ter uma arquitetura de provisionamento de clusters flexível que permita adicionar outros provedores de Kubernetes no futuro, como GKE, AKS, etc.
-- Global Accelerator: para criar uma rede global de baixa latência que conecte os clusters de plataforma e os clusters de clientes, permitindo que os clientes acessem a plataforma de forma rápida e confiável, independentemente de onde estejam localizados.
-- DynamoDB Global Table: para criar um banco de dados global que armazene o estado da plataforma e dos clusters de clientes, permitindo que a plataforma seja altamente disponível e resiliente, mesmo em caso de falhas regionais.
-- Istio: Service Mesh e Gateway.
-- external-dns: para gerenciar os registros DNS dos clusters de clientes de forma automática, com base nas regras definidas na plataforma.
-- cert-manager: para gerenciar os certificados TLS dos clusters de clientes de forma automática, garantindo que as conexões sejam seguras e confiáveis.
-- argocd: para gerenciar a configuração dos clusters de clientes de forma declarativa, permitindo que as mudanças sejam aplicadas de forma consistente e controlada.
-- github: para armazenar a configuração dos clusters de clientes e da plataforma de forma versionada, permitindo que as mudanças sejam auditáveis e revertíveis.
-
-## Arquitetura inicial
-
-```
-Usuário
-  │
-  ▼
-Route 53  (wasp.silvios.me → alias do Global Accelerator ou ALB)
-  │
-  ▼
-Global Accelerator  (anycast, TLS pass-through ou terminação)
-  │
-  ▼
-ALB  (listener HTTPS, regra default → Auth Service)
-  │
-  ├──[/login, /auth]──────────────────────────────────────────────────▶ Auth/Routing Service
-  │                                                                          │
-  │                                                               Lookup: john@customer1.com
-  │                                                               → customer1-useast1-prod
-  │                                                                          │
-  │                                                               Seta cookie/JWT com tenant
-  │
-  └──[/* com cookie/JWT válido]──────────────────────────────▶ ALB Listener Rule
-                                                                (header/cookie match)
-                                                                    │
-                                                         ┌──────────┴──────────┐
-                                                         ▼                     ▼
-                                              customer1-useast1-prod    customer2-brsouth1-prod
-                                              (target group → NLB/     (target group → NLB/
-                                               Istio GW no EKS)         Istio GW no EKS)
-```
-
-## O que cada platform-cluster regional contém
-
-- Auth Service — resolve tenant e emite token
-- ALB regional — roteia para os customer-clusters da região
-- DynamoDB local (ou Global Table replicada) — tenant registry
-- Ingress/Gateway compartilhado — se fizer sentido centralizar
-
-## Como o Global Accelerator se encaixa
-
-Aqui ele passa a ter um papel mais importante: geo-routing automático.
-
-O cliente em São Paulo bate em `wasp.silvios.me` → Global Accelerator roteia para o endpoint mais próximo → `platform-cluster-brs1` → Auth Service resolve o tenant → roteia para `customer3-brs1`.
-
-## Serviços AWS envolvidos
-
-### 1. Route 53
-Apenas resolve wasp.silvios.me para o Global Accelerator ou ALB. Sem lógica aqui.
-
-### 2. Global Accelerator (opcional mas recomendado dado seu setup atual)
-Anycast global, reduz latência para clientes geograficamente distribuídos. Aponta para o ALB regional.
-
-### 3. ALB (Application Load Balancer)
-O coração do roteamento. Ele suporta:
-
-Listener Rules com condições de cookie e header HTTP
-Target Groups por destino (cada gateway de cliente vira um target group)
-Integração com Cognito ou OIDC diretamente no listener para autenticação
-
-Após o Auth Service setar um cookie tenant=customer1-useast1-prod, o ALB roteia nas próximas requisições via listener rule sem passar pelo Auth Service novamente.
-
-### 4. Auth / Tenant Resolution Service (sua lógica, rodando no EKS)
-Esse é o componente que você escreve. Responsabilidades:
-
-Receber o e-mail no login
-Fazer lookup no DynamoDB ou RDS → customer1.com → customer1-useast1-prod
-Emitir JWT ou setar cookie com o tenant
-Redirecionar o browser para o destino correto
-
-### 5. DynamoDB (tenant registry)
-
-Tabela simples:
-
-```
-email_domain (PK) | tenant_gateway
-customer1.com     | customer1-useast1-prod.wasp.silvios.me
-customer2.com     | customer2-brsouth1-prod.wasp.silvios.me
-```
-
-### 6. Cognito
-
-Para externalizar o fluxo OIDC/OAuth, o ALB tem integração nativa com Cognito, intercepta requisições não autenticadas, redireciona para o Cognito, e após o login, usar Lambda Triggers no Cognito para enriquecer o token JWT com o tenant baseado no domínio do e-mail.
+O roteamento de tráfego é baseado no domínio do e-mail do usuário: ao fazer login com `john@customer1.com`, o Auth Service resolve o tenant e redireciona para o gateway correspondente (`customer1-useast1-prod.wasp.silvios.me`), de forma transparente.
 
 ## Objetivos
 
 - Criar e gerenciar uma Hierarchical Platform Topology
+- Criar uma instância de plataforma WASP
+- Conectar em uma instância da plataforma WASP
+- Autenticar usando SSO (inicialmente com contas Google)
+- Criar recursos compartilhados na AWS:
+  - Container Registry
+  - EKS Cluster de Plataforma
+  - DNS global: wasp.silvios.me
+
+**Roadmap de evolução:**
+- Fase 1: cluster único + Auth Service simples
+- Fase 2: platform-cluster separado dos customer-clusters
+- Fase 3: platform-clusters regionais + Global Accelerator + DynamoDB Global Table
+
+## Stack
+
+**Cloud (AWS)**
+- ALB
+- Cognito
+- DynamoDB Global Table
+- EKS
+- Global Accelerator
+- Route 53
+
+**In-cluster**
+- ArgoCD (GitOps)
+- cert-manager
+- external-dns
+- Istio (Service Mesh e Gateway)
+
+**Configuração**
+- KCL — linguagem expressiva para definir recursos e a hierarquia da plataforma, evitando repetição de YAML
+
+**Dev local**
+- k3d + Crossplane (Undercloud) — simula o ambiente de plataforma localmente
+
+**Identity**
+- SSO via Google (extensível para AWS IAM, Azure AD)
+
+**Source of truth**
+- GitHub — configuração versionada de clusters e plataforma
+
+## Arquitetura
+
+### Topology
 
 ```
                        wasp.silvios.me
@@ -131,21 +82,55 @@ Para externalizar o fluxo OIDC/OAuth, o ALB tem integração nativa com Cognito,
   customer1-use1    customer2-use1  customer3-brs1  customer4-brs1
 ```
 
-- Criar uma instância de plataforma WASP
-- Conectar em uma instância da plataforma WASP
-- Autenticar usando SSO (inicialmente com contas Google)
-- Criar recursos compartilhados inicialmente na AWS como:
-  - Container Registry
-  - EKS Cluster de Plataforma
-  - DNS global: wasp.silvios.me
+O Global Accelerator faz geo-routing automático: um cliente em São Paulo bate em `wasp.silvios.me`, é roteado para `platform-cluster-brs1`, o Auth Service resolve o tenant e roteia para `customer3-brs1`.
 
-## Ideia para plano inicial
+Cada platform-cluster regional contém:
+- Auth Service — resolve tenant e emite token
+- ALB regional — roteia para os customer-clusters da região
+- DynamoDB local (ou Global Table replicada) — tenant registry
 
-Evolução natural da arquitetura
+### Request flow
 
-Fase 1: cluster único + auth service simples
-Fase 2: platform-cluster separado dos customer-clusters
-Fase 3: platform-clusters regionais + Global Accelerator + DynamoDB Global Table
+```
+Usuário
+  │
+  ▼
+Route 53  (wasp.silvios.me → Global Accelerator)
+  │
+  ▼
+Global Accelerator  (anycast, TLS pass-through ou terminação)
+  │
+  ▼
+ALB  (listener HTTPS, regra default → Auth Service)
+  │
+  ├──[/login, /auth]──────────────────────────────────────────────────▶ Auth Service
+  │                                                                          │
+  │                                                               Lookup: john@customer1.com
+  │                                                               → customer1-useast1-prod
+  │                                                                          │
+  │                                                               Seta cookie/JWT com tenant
+  │
+  └──[/* com cookie/JWT válido]──────────────────────────────▶ ALB Listener Rule
+                                                                (header/cookie match)
+                                                                    │
+                                                         ┌──────────┴──────────┐
+                                                         ▼                     ▼
+                                              customer1-useast1-prod    customer2-brsouth1-prod
+                                              (target group → NLB/     (target group → NLB/
+                                               Istio GW no EKS)         Istio GW no EKS)
+```
+
+O Auth Service faz lookup no DynamoDB pelo domínio do e-mail e emite um JWT com o tenant. Nas requisições seguintes, o ALB roteia diretamente via cookie/header sem passar pelo Auth Service novamente.
+
+**DynamoDB — tenant registry:**
+
+```
+email_domain (PK) | tenant_gateway
+customer1.com     | customer1-useast1-prod.wasp.silvios.me
+customer2.com     | customer2-brsouth1-prod.wasp.silvios.me
+```
+
+**Cognito (opcional):** o ALB tem integração nativa com Cognito para externalizar o fluxo OIDC/OAuth. Lambda Triggers enriquecem o JWT com o tenant baseado no domínio do e-mail.
 
 ## Ideias de comandos
 
