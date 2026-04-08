@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/smsilva/waspctl/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -31,15 +32,15 @@ func init() {
 }
 
 func initConfig(path string) error {
-	if path != "" {
-		viper.SetConfigFile(path)
-	} else {
+	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return err
 		}
-		viper.SetConfigFile(filepath.Join(home, ".wasp", "config.yaml"))
+		path = filepath.Join(home, ".wasp", "config.yaml")
 	}
+	config.SetConfigPath(path)
+	viper.SetConfigFile(path)
 	// Ignore "file not found" — created on first --set
 	_ = viper.ReadInConfig()
 	return nil

@@ -81,3 +81,7 @@ go test -c -o /tmp/config.test ./internal/config/ && /tmp/config.test -test.v
 ```
 
 `go build ./...` and `go vet ./...` work normally and should always pass before committing.
+
+### Build
+
+Use `make build` to compile and install the binary to `~/bin/waspctl`. Ensure `~/bin` is in your `$PATH`.

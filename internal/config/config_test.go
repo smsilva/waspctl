@@ -15,6 +15,7 @@ func setupTempConfig(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	viper.Reset()
+	config.SetConfigPath(path)
 	viper.SetConfigFile(path)
 	return path
 }
@@ -65,6 +66,32 @@ func TestSetCreatesFile(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("config file não foi criado: %v", err)
+	}
+}
+
+func TestSetCreatesFileWithExplicitPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "subdir", "config.yaml")
+	viper.Reset()
+	// Simula primeira execução: só chama SetConfigPath, sem viper.SetConfigFile
+	config.SetConfigPath(path)
+
+	if err := config.Set("provider", "aws"); err != nil {
+		t.Fatalf("Set com path explícito falhou: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("config file não foi criado em %s: %v", path, err)
+	}
+
+	// Verifica que o valor foi salvo corretamente
+	viper.SetConfigFile(path)
+	_ = viper.ReadInConfig()
+	got, err := config.Get("provider")
+	if err != nil {
+		t.Fatalf("Get após Set falhou: %v", err)
+	}
+	if got != "aws" {
+		t.Errorf("Get(provider) = %q, want %q", got, "aws")
 	}
 }
 

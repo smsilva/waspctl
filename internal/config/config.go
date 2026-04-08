@@ -17,6 +17,14 @@ type Pair struct {
 	Value string
 }
 
+// configPath armazena o caminho do arquivo de configuração definido em initConfig
+var configPath string
+
+// SetConfigPath define o caminho do arquivo de configuração (chamado por initConfig)
+func SetConfigPath(path string) {
+	configPath = path
+}
+
 func Get(key string) (string, error) {
 	if !viper.IsSet(key) {
 		return "", fmt.Errorf("%w: %s", ErrKeyNotFound, key)
@@ -26,13 +34,26 @@ func Get(key string) (string, error) {
 
 func Set(key, value string) error {
 	viper.Set(key, value)
-	if err := viper.WriteConfig(); err != nil {
-		if err2 := os.MkdirAll(filepath.Dir(viper.ConfigFileUsed()), 0o750); err2 != nil {
-			return err2
-		}
-		return viper.SafeWriteConfig()
+
+	if configPath == "" {
+		return fmt.Errorf("config file path not set")
 	}
-	return nil
+
+	// Verifica se o arquivo existe
+	_, err := os.Stat(configPath)
+	fileExists := err == nil
+
+	if fileExists {
+		// Arquivo existe: WriteConfigAs sobrescreve
+		return viper.WriteConfigAs(configPath)
+	}
+
+	// Arquivo não existe: precisa criar diretório primeiro
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		return err
+	}
+	// SafeWriteConfigAs só escreve se o arquivo não existir
+	return viper.SafeWriteConfigAs(configPath)
 }
 
 func List() []Pair {
