@@ -1,21 +1,12 @@
 # waspctl
 
-Este projeto é um playground para experimentar a construção de uma CLI e uma plataforma de orquestração de clusters Kubernetes multi-tenant na AWS, chamada WASP (Hierarchical Platform Topology).
+`waspctl` é um playground experimental para construir uma CLI e uma plataforma de orquestração de clusters Kubernetes multi-tenant na AWS (Hierarchical Platform Topology), com entrada global única em `wasp.silvios.me`.
 
-A maior parte dele se baseia em documentos da AWS:
+Principais referências e inspiração:
 
-*Building a Multi-Tenant SaaS Solution Using Amazon EKS*
-by Toby Buckley and Ranjith Raman
-https://aws.amazon.com/pt/blogs/apn/building-a-multi-tenant-saas-solution-using-amazon-eks/
-
-*Operating a multi-regional stateless application using Amazon EKS*
-by Re Alvarez-Parmar
-https://aws.amazon.com/pt/blogs/containers/operating-a-multi-regional-stateless-application-using-amazon-eks/
-
-*Amazon EKS Blueprints for Terraform*
-https://aws-ia.github.io/terraform-aws-eks-blueprints/
-
-`waspctl` é uma CLI para provisionar uma Hierarchical Platform Topology de clusters Kubernetes multi-tenant na AWS, com entrada global única em `wasp.silvios.me`.
+- [Building a Multi-Tenant SaaS Solution Using Amazon EKS](https://aws.amazon.com/pt/blogs/apn/building-a-multi-tenant-saas-solution-using-amazon-eks/) — Toby Buckley e Ranjith Raman
+- [Operating a multi-regional stateless application using Amazon EKS](https://aws.amazon.com/pt/blogs/containers/operating-a-multi-regional-stateless-application-using-amazon-eks/) — Re Alvarez-Parmar
+- [Amazon EKS Blueprints for Terraform](https://aws-ia.github.io/terraform-aws-eks-blueprints/)
 
 O roteamento de tráfego é baseado no domínio do e-mail do usuário: ao fazer login com `john@customer1.com`, o Auth Service resolve o tenant e redireciona para o gateway correspondente (`customer1-useast1-prod.wasp.silvios.me`), de forma transparente.
 
@@ -54,8 +45,8 @@ O roteamento de tráfego é baseado no domínio do e-mail do usuário: ao fazer 
 **Configuração**
 - KCL — linguagem expressiva para definir recursos e a hierarquia da plataforma, evitando repetição de YAML
 
-**Dev local**
-- k3d + Crossplane (Undercloud) — simula o ambiente de plataforma localmente
+**Undercloud**
+- k3d + Crossplane (Undercloud) — permite provisionar recursos AWS a partir da máquina local facilitando em um momento posterior a criação do cluster de plataforma (Overcloud) que por sua vez também contará com o Crossplane para gerenciar recursos de nuvem de maneira declarativa.
 
 **Identity**
 - SSO via Google (extensível para AWS IAM, Azure AD)
@@ -82,7 +73,7 @@ O roteamento de tráfego é baseado no domínio do e-mail do usuário: ao fazer 
   customer1-use1    customer2-use1  customer3-brs1  customer4-brs1
 ```
 
-O Global Accelerator faz geo-routing automático: um cliente em São Paulo bate em `wasp.silvios.me`, é roteado para `platform-cluster-brs1`, o Auth Service resolve o tenant e roteia para `customer3-brs1`.
+O Global Accelerator faz ***geo-routing*** automático: um cliente (`mariana@customer3.com`) em São Paulo ao acessar `wasp.silvios.me`, será roteado para `platform-cluster-brs1`, o Auth Service resolve o tenant e roteia para `customer3-brs1` que por sua vez continuará com o fluxo de autenticação SSO (avaliar se o Cognito pode ser integrado diretamente no ALB para externalizar o fluxo OIDC/OAuth mantendo o Auth Service que descobre o tenant).
 
 Cada platform-cluster regional contém:
 - Auth Service — resolve tenant e emite token
@@ -95,13 +86,13 @@ Cada platform-cluster regional contém:
 Usuário
   │
   ▼
-Route 53  (wasp.silvios.me → Global Accelerator)
+Route 53 (wasp.silvios.me → Global Accelerator)
   │
   ▼
-Global Accelerator  (anycast, TLS pass-through ou terminação)
+Global Accelerator (anycast, TLS pass-through ou terminação)
   │
   ▼
-ALB  (listener HTTPS, regra default → Auth Service)
+ALB (listener HTTPS, regra default → Auth Service)
   │
   ├──[/login, /auth]──────────────────────────────────────────────────▶ Auth Service
   │                                                                          │
@@ -120,7 +111,7 @@ ALB  (listener HTTPS, regra default → Auth Service)
                                                Istio GW no EKS)         Istio GW no EKS)
 ```
 
-O Auth Service faz lookup no DynamoDB pelo domínio do e-mail e emite um JWT com o tenant. Nas requisições seguintes, o ALB roteia diretamente via cookie/header sem passar pelo Auth Service novamente.
+O Auth Service faz lookup no **DynamoDB** pelo domínio do e-mail e emite um JWT com o tenant. Nas requisições seguintes, o ALB roteia diretamente via cookie/header sem passar pelo Auth Service novamente.
 
 **DynamoDB — tenant registry:**
 
@@ -130,7 +121,7 @@ customer1.com     | customer1-useast1-prod.wasp.silvios.me
 customer2.com     | customer2-brsouth1-prod.wasp.silvios.me
 ```
 
-**Cognito (opcional):** o ALB tem integração nativa com Cognito para externalizar o fluxo OIDC/OAuth. Lambda Triggers enriquecem o JWT com o tenant baseado no domínio do e-mail.
+**Cognito:** o ALB tem integração nativa com Cognito para externalizar o fluxo OIDC/OAuth. Lambda Triggers enriquecem o JWT com o tenant baseado no domínio do e-mail.
 
 ## CLI
 
